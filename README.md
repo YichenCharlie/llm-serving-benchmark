@@ -25,7 +25,7 @@ Stage 1 completed:
 
 - [x] Stage 1: Model deployment and API serving
 - [x] Stage 2: Baseline benchmark
-- [ ] Stage 3: Request load / concurrency experiments
+- [x] Stage 3: Request load / concurrency experiments
 - [ ] Stage 4: Context length experiments
 - [ ] Stage 5: Performance analysis and visualization
 - [ ] Stage 6: Prefix caching
