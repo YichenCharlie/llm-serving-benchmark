@@ -24,7 +24,7 @@ Stage 1 completed:
 ## Roadmap
 
 - [x] Stage 1: Model deployment and API serving
-- [ ] Stage 2: Baseline benchmark
+- [x] Stage 2: Baseline benchmark
 - [ ] Stage 3: Request load / concurrency experiments
 - [ ] Stage 4: Context length experiments
 - [ ] Stage 5: Performance analysis and visualization
