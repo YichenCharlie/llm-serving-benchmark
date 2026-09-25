@@ -119,13 +119,20 @@ Evaluated Chunked Prefill on a long-prompt workload (**3072-token input, 128-tok
 max_num_batched_tokens: 4096 → 2048 → 1024
 ```
 
-**Key result:** reducing the token budget to 1024 lowered **P99 ITL from 306.99 ms to 114.42 ms** (**-62.7%**) versus the non-chunked baseline, while output throughput remained close to baseline (**250.95 vs 253.64 tok/s**).
+**Key result:** reducing the scheduler token budget to 1024 lowered **P99 ITL from 306.99 ms to 114.42 ms (-62.7%)** versus the non-chunked baseline, while output throughput remained nearly unchanged (**250.95 vs 253.64 tok/s**).
 
-The experiment shows that finer-grained prefill scheduling can improve **decode tail latency**, but introduces trade-offs in mean ITL and throughput.
+The experiment shows that finer-grained prefill scheduling can substantially improve **decode tail latency**, but introduces trade-offs in mean ITL, TTFT, and throughput.
+
+### Multi-Metric Trade-off
+
+![Normalized Performance Across Chunked Prefill Configurations](figures/chunked_prefill_normalized_metrics.png)
+
+### Decode Tail Latency vs Token Budget
 
 ![P99 ITL vs Scheduler Token Budget](figures/p99_itl_vs_token_budget.png)
 
 [Details](docs/stage7_chunked_prefill.md)
+
 
 ---
 
