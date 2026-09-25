@@ -226,6 +226,7 @@ Completed:
 This project focuses on **systems behavior and serving performance**, not model quality.
 
 The experiments use controlled synthetic workloads. Stage 8 intentionally uses `num_gpu_blocks_override` as a stress-test mechanism to isolate KV-cache capacity effects.
+
 ---
 
 <sub>Personal learning notes: [vLLM Serving Project Notes](docs/vllm_personal_notes.md)</sub>
