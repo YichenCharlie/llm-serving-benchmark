@@ -6,14 +6,6 @@ Stage 8 的目标是研究：
 
 > 当并发请求过多，或者 GPU KV Cache 不足时，vLLM 的 scheduler 如何管理 Running / Waiting requests，并在什么情况下发生 preemption。
 
-这一阶段延续 Stage 7 的 scheduling 研究，但关注点从：
-
-```text
-Prefill / Decode 如何共享 token budget
-```
-
-进一步转向：
-
 ```text
 Request 如何竞争 scheduler capacity 和 KV Cache
 ```
@@ -21,17 +13,11 @@ Request 如何竞争 scheduler capacity 和 KV Cache
 本阶段主要观察：
 
 - Running requests
-
 - Waiting requests
-
 - KV Cache usage
-
 - Preemption
-
 - TTFT
-
 - TPOT / ITL
-
 - Output Throughput
 
 ---
@@ -627,29 +613,15 @@ Preemptions = 0
 本阶段完成：
 
 - 理解 Running / Waiting requests
-
 - 理解 `max_num_seqs`
-
 - 完成 Scheduler Queue controlled experiment
-
 - 观察 scheduler-capacity-induced queueing
-
 - 使用 `num_gpu_blocks_override` 制造 KV Cache pressure
-
 - 完成 512 / 2048 blocks controlled experiment
-
 - 通过 `/metrics` 验证 KV Cache 配置
-
 - 观察 KV Cache pressure 下的 Running / Waiting 状态
-
 - 成功触发并记录 Preemption
-
 - 分析 TTFT、TPOT、ITL 与 Throughput trade-off
-
 - 生成 `stage8_summary.csv`
-
 - 生成 `stage8_scheduler_trace.csv`
-
 - 编写 `plot_scheduler_preemption.py`
-
-- 生成 5 张实验图
