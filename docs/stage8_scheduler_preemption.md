@@ -10,16 +10,6 @@ Stage 8 的目标是研究：
 Request 如何竞争 scheduler capacity 和 KV Cache
 ```
 
-本阶段主要观察：
-
-- Running requests
-- Waiting requests
-- KV Cache usage
-- Preemption
-- TTFT
-- TPOT / ITL
-- Output Throughput
-
 ---
 
 ## 2. 实验环境
@@ -31,9 +21,7 @@ Request 如何竞争 scheduler capacity 和 KV Cache
 ### Software
 
 - vLLM：0.11.2
-
 - PyTorch：2.9.0+cu128
-
 - CUDA：12.8
 
 ### Model
