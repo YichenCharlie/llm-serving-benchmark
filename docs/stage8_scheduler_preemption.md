@@ -589,9 +589,7 @@ Preemptions = 0
 7. 当前结论只适用于本实验环境：
 
    - Qwen2.5-3B-Instruct
-
    - RTX 3090
-
    - vLLM 0.11.2
 
 ---
