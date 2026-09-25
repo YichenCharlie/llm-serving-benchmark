@@ -1,0 +1,1 @@
+vllm:num_preemptions_total{engine="0",model_name="/root/autodl-tmp/models/Qwen2.5-3B-Instruct"} 1.0

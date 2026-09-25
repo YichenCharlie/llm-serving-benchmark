@@ -1,30 +1,166 @@
-# LLM Serving Performance Benchmark
+# LLM Serving Performance Benchmark with vLLM
 
-A hands-on ML Systems project for studying the performance characteristics of LLM inference and serving with **vLLM**.
+A hands-on ML Systems project for studying **LLM inference, scheduling, KV-cache behavior, and serving performance** with **vLLM**.
 
-This project deploys **Qwen2.5-3B-Instruct** on a single **NVIDIA RTX 3090 24GB** GPU and evaluates how serving performance changes under different request concurrency levels and input context lengths.
+The project deploys **Qwen2.5-3B-Instruct** on a single **NVIDIA RTX 3090 24GB** GPU and uses controlled synthetic workloads to measure **throughput, TTFT, TPOT, ITL, tail latency, prefix-cache reuse, scheduler queueing, and preemption**.
 
-## Project Goals
+## Highlights
 
-The main goals of this project are to:
+- **Concurrency scaling:** increasing concurrency from 1 to 16 raised output throughput from **102.32 to 1205.90 tok/s** (~11.8×), while tail latency increased.
+- **Context-length scaling:** increasing input length from 128 to 2048 tokens increased mean TTFT from **28.79 to 127.23 ms** (~4.4×), while mean TPOT stayed near **9.4 ms/token**.
+- **Prefix caching:** reusing a 1536-token shared prefix reduced mean TTFT by **63.8%** and increased output throughput by **10.7%**, with almost no TPOT change.
+- **Chunked prefill:** tuning the scheduler token budget to 1024 reduced **P99 ITL by 62.7%** versus the non-chunked baseline while keeping output throughput within ~1% of baseline.
+- **KV-cache pressure:** increasing the controlled KV-cache capacity from 512 to 2048 blocks reduced mean TTFT from **18.19 s to 1.42 s**, increased output throughput from **164.90 to 459.32 tok/s**, and eliminated the observed preemption.
 
-- Build and deploy an LLM serving system with vLLM
-- Measure serving performance using controlled synthetic workloads
-- Study the throughput-latency trade-off under different concurrency levels
-- Study how input context length affects prefill latency and decoding performance
-- Build a reproducible workflow for LLM serving experiments
+## Experimental Setup
 
-## Environment
+| Component | Configuration |
+|---|---|
+| GPU | NVIDIA GeForce RTX 3090 24GB |
+| Model | Qwen2.5-3B-Instruct |
+| OS | Ubuntu 22.04 |
+| Python | 3.12 |
+| PyTorch | 2.9.0+cu128 |
+| CUDA | 12.8 |
+| vLLM | 0.11.2 |
+| Workloads | Controlled synthetic requests |
 
-- GPU: NVIDIA GeForce RTX 3090 24GB
-- OS: Ubuntu 22.04
-- Python: 3.12
-- PyTorch: 2.9.0+cu128
-- CUDA: 12.8
-- vLLM: 0.11.2
-- Model: Qwen2.5-3B-Instruct
+The model weights were downloaded through ModelScope for reliable access from the cloud environment.
 
-The model weights were downloaded through ModelScope for more reliable access from the cloud environment.
+## Metrics
+
+- **Output Throughput:** generated output tokens per second.
+- **TTFT:** time from request submission to the first generated token.
+- **TPOT:** average time per output token after the first token.
+- **ITL:** latency between consecutive output tokens.
+- **P99:** tail latency for the slowest requests.
+
+---
+
+## Stage 1 — Environment Setup and Model Deployment
+
+Built the serving environment, deployed Qwen2.5-3B-Instruct with vLLM, started an OpenAI-compatible API server, and validated end-to-end inference requests.
+
+[Details](docs/stage1_setup.md)
+
+---
+
+## Stage 2 — Baseline Benchmark
+
+Established a reproducible single-concurrency baseline using 100 requests with 512-token inputs and 128-token outputs.
+
+| Metric | Result |
+|---|---:|
+| Request Throughput | 0.799 req/s |
+| Output Throughput | 102.32 tok/s |
+| Mean TTFT | 62.64 ms |
+| P99 TTFT | 72.42 ms |
+| Mean TPOT | 9.35 ms |
+| P99 TPOT | 9.49 ms |
+
+[Details](docs/stage2_baseline.md)
+
+---
+
+## Stage 3 — Concurrency Scaling
+
+Varied maximum concurrency from **1 → 2 → 4 → 8 → 16** while keeping the workload fixed.
+
+**Key result:** output throughput increased from **102.32 to 1205.90 tok/s**, but TPOT and P99 TTFT also increased at higher concurrency, demonstrating the serving **throughput-latency trade-off**. Throughput was still rising at concurrency 16, so saturation was not reached.
+
+![Throughput vs Concurrency](figures/throughput_vs_concurrency.png)
+
+[Details](docs/stage3_concurrency.md)
+
+---
+
+## Stage 4 — Context Length Scaling
+
+Varied input length from **128 → 512 → 1024 → 2048 tokens** with concurrency fixed at 1.
+
+**Key result:** mean TTFT increased from **28.79 to 127.23 ms**, while mean TPOT remained nearly constant at **~9.4 ms/token**. Under this workload, longer prompts primarily increased **prefill cost**, while decode token latency remained stable.
+
+![Mean TTFT vs Input Length](figures/ttft_vs_context_length.png)
+
+[Details](docs/stage4_context_length.md)
+
+---
+
+## Stage 5 — Project V1 Milestone
+
+Consolidated the baseline, concurrency, and context-length experiments into a reproducible project structure with raw results, processed data, visualizations, and documentation.
+
+---
+
+## Stage 6 — Automatic Prefix Caching
+
+Constructed a workload with a **1536-token shared prefix + 512-token unique suffix** and compared Prefix Caching OFF vs ON.
+
+**Key results:**
+
+- Mean TTFT: **222.99 → 80.75 ms** (**-63.8%**)
+- P99 TTFT: **236.51 → 92.94 ms** (**-60.7%**)
+- Output Throughput: **89.75 → 99.33 tok/s** (**+10.7%**)
+- Mean TPOT remained essentially unchanged at **~9.5 ms/token**
+
+This shows that prefix caching primarily reduces **repeated prefill computation**, rather than decode cost.
+
+![Prefix Caching Mean TTFT](figures/mean_ttft_prefix_cache.png)
+
+[Details](docs/stage6_prefix_caching.md)
+
+---
+
+## Stage 7 — Chunked Prefill and Scheduler Token Budget
+
+Evaluated Chunked Prefill on a long-prompt workload (**3072-token input, 128-token output, concurrency 8**) and tuned:
+
+```text
+max_num_batched_tokens: 4096 → 2048 → 1024
+```
+
+**Key result:** reducing the token budget to 1024 lowered **P99 ITL from 306.99 ms to 114.42 ms** (**-62.7%**) versus the non-chunked baseline, while output throughput remained close to baseline (**250.95 vs 253.64 tok/s**).
+
+The experiment shows that finer-grained prefill scheduling can improve **decode tail latency**, but introduces trade-offs in mean ITL and throughput.
+
+![P99 ITL vs Scheduler Token Budget](figures/p99_itl_vs_token_budget.png)
+
+[Details](docs/stage7_chunked_prefill.md)
+
+---
+
+## Stage 8 — Scheduler, KV-Cache Pressure, and Preemption
+
+Studied two different sources of request queueing.
+
+### Scheduler-capacity queueing
+
+With **max concurrency = 8** and **max_num_seqs = 4**, the server observed up to **4 Running / 4 Waiting** requests while KV-cache utilization stayed below **3%**.
+
+This separates **scheduler admission pressure** from memory pressure: requests can wait even when KV cache is mostly empty.
+
+### KV-cache pressure
+
+Used `num_gpu_blocks_override` to create a controlled KV-cache stress test.
+
+| Metric | 512 Blocks | 2048 Blocks |
+|---|---:|---:|
+| Typical Running Requests | 1–2 | 8 |
+| Typical Waiting Requests | ~6 | 0 |
+| Mean TTFT | 18.19 s | 1.42 s |
+| P99 TTFT | 19.15 s | 2.33 s |
+| Output Throughput | 164.90 tok/s | 459.32 tok/s |
+| Observed Preemptions | 1 | 0 |
+
+Increasing KV-cache capacity reduced mean TTFT by **92.2%**, increased output throughput by **178.5%**, and eliminated the observed preemption.
+
+![Request Scheduling under KV-Cache Pressure](figures/request_scheduling_kv_capacity.png)
+
+![Throughput-Latency Impact of KV-Cache Capacity](figures/throughput_vs_ttft.png)
+
+[Details](docs/stage8_scheduler_preemption.md)
+
+---
 
 ## Project Structure
 
@@ -35,13 +171,19 @@ llm-serving-benchmark/
 │   ├── stage1_setup.md
 │   ├── stage2_baseline.md
 │   ├── stage3_concurrency.md
-│   └── stage4_context_length.md
+│   ├── stage4_context_length.md
+│   ├── stage6_prefix_caching.md
+│   ├── stage7_chunked_prefill.md
+│   └── stage8_scheduler_preemption.md
 ├── scripts/
 │   ├── start_server.sh
 │   └── send_request.sh
 ├── analysis/
 │   ├── plot_concurrency.py
-│   └── plot_context_length.py
+│   ├── plot_context_length.py
+│   ├── plot_prefix_cache.py
+│   ├── plot_chunked_prefill.py
+│   └── plot_scheduler_preemption.py
 ├── results/
 │   ├── raw/
 │   └── processed/
@@ -49,178 +191,31 @@ llm-serving-benchmark/
 └── .gitignore
 ```
 
-## Stage 1: Environment Setup and Model Deployment
+## What This Project Demonstrates
 
-The first stage focused on building the serving environment.
-
-Completed tasks:
-
-- Created an isolated Python virtual environment
-- Installed and configured vLLM
-- Deployed Qwen2.5-3B-Instruct on RTX 3090
-- Started an OpenAI-compatible API server
-- Successfully sent inference requests through HTTP API
-- Used tmux to manage long-running server processes
-
-More details: [Stage 1 Setup](docs/stage1_setup.md)
-
-## Stage 2: Baseline Benchmark
-
-The baseline experiment sends a controlled workload of fixed-length synthetic requests to vLLM.
-
-> 给 vLLM 连续发送一批固定为 512-token 输入、128-token 输出的 synthetic requests，测量这套 serving system 在单并发条件下的基础性能。
-
-Baseline configuration:
-
-| Parameter | Value |
-|---|---|
-| Input length | 512 tokens |
-| Output length | 128 tokens |
-| Requests | 100 |
-| Maximum concurrency | 1 |
-
-Baseline result:
-
-| Metric | Value |
-|---|---:|
-| Request throughput | 0.799 req/s |
-| Output throughput | 102.32 tok/s |
-| Mean TTFT | 62.64 ms |
-| P99 TTFT | 72.42 ms |
-| Mean TPOT | 9.35 ms |
-| P99 TPOT | 9.49 ms |
-
-More details: [Stage 2 Baseline](docs/stage2_baseline.md)
-
-## Stage 3: Concurrency Scaling
-
-This experiment studies how increasing request concurrency affects serving throughput and latency.
-
-All workload parameters remain fixed while maximum concurrency changes:
-
-```text
-1 → 2 → 4 → 8 → 16
-```
-
-### Results
-
-| Concurrency | Output Throughput (tok/s) | Mean TTFT (ms) | P99 TTFT (ms) | Mean TPOT (ms) |
-|---:|---:|---:|---:|---:|
-| 1 | 102.32 | 62.64 | 72.42 | 9.35 |
-| 2 | 187.17 | 31.43 | 43.12 | 10.52 |
-| 4 | 361.62 | 39.96 | 54.16 | 10.81 |
-| 8 | 678.36 | 48.95 | 72.81 | 11.03 |
-| 16 | 1205.90 | 72.67 | 116.24 | 11.53 |
-
-### Throughput vs Concurrency
-
-![Throughput vs Concurrency](figures/throughput_vs_concurrency.png)
-
-### P99 TTFT vs Concurrency
-
-![P99 TTFT vs Concurrency](figures/p99_ttft_vs_concurrency.png)
-
-### Key Findings
-
-- Output throughput increased from about **102 tok/s** to about **1206 tok/s** as concurrency increased from 1 to 16.
-- Mean TPOT gradually increased from **9.35 ms/token** to **11.53 ms/token**.
-- P99 TTFT increased significantly at higher concurrency.
-- The experiment demonstrates the typical **throughput-latency trade-off** in LLM serving.
-- Throughput was still increasing at concurrency 16, so the saturation point was not reached in this experiment.
-
-More details: [Stage 3 Concurrency Scaling](docs/stage3_concurrency.md)
-
-## Stage 4: Context Length Scaling
-
-This experiment studies how longer input prompts affect serving performance.
-
-Only input length changes:
-
-```text
-128 → 512 → 1024 → 2048 tokens
-```
-
-The following parameters remain fixed:
-
-- Output length: 128 tokens
-- Requests: 100
-- Maximum concurrency: 1
-
-### Results
-
-| Input Length | Output Throughput (tok/s) | Mean TTFT (ms) | P99 TTFT (ms) | Mean TPOT (ms) |
-|---:|---:|---:|---:|---:|
-| 128 | 104.82 | 28.79 | 32.22 | 9.38 |
-| 512 | 102.70 | 55.05 | 63.19 | 9.38 |
-| 1024 | 101.07 | 72.96 | 80.42 | 9.39 |
-| 2048 | 96.75 | 127.23 | 137.00 | 9.41 |
-
-### Mean TTFT vs Input Length
-
-![Mean TTFT vs Input Length](figures/ttft_vs_context_length.png)
-
-### Mean TPOT vs Input Length
-
-![Mean TPOT vs Input Length](figures/tpot_vs_context_length.png)
-
-### Key Findings
-
-- Mean TTFT increased from **28.79 ms** at 128 input tokens to **127.23 ms** at 2048 input tokens.
-- P99 TTFT also increased significantly as the prompt became longer.
-- Mean TPOT remained almost unchanged at approximately **9.4 ms/token**.
-- Output token throughput decreased only moderately.
-- Under this controlled workload, longer input context primarily increases **prefill latency**, while decode token latency remains relatively stable.
-
-More details: [Stage 4 Context Length](docs/stage4_context_length.md)
-
-## Metrics
-
-### TTFT — Time To First Token
-
-The time between sending a request and receiving the first generated token.
-
-TTFT is strongly affected by prompt processing and prefill latency.
-
-### TPOT — Time Per Output Token
-
-The average time required to generate each output token after the first token.
-
-TPOT is mainly used to characterize decode performance.
-
-### P99 Latency
-
-The 99th percentile latency.
-
-It helps capture tail latency and the experience of the slowest requests, which may not be visible from average latency alone.
-
-## Current Findings
-
-The experiments so far show two clear system-level behaviors:
-
-1. **Increasing concurrency improves overall throughput but increases per-request latency and tail latency.**
-2. **Increasing input context length significantly increases TTFT while TPOT remains almost stable.**
-
-Together, these experiments demonstrate the different effects of request load and prompt length on LLM serving performance.
+- Controlled benchmarking of a real GPU-backed LLM serving system
+- Analysis of **prefill vs decode** behavior using TTFT, TPOT, and ITL
+- Measurement of **throughput-latency trade-offs** under increasing request load
+- Evaluation of **KV-cache reuse** through Automatic Prefix Caching
+- Scheduler tuning with **Chunked Prefill** and token budgets
+- Direct observation of **Running / Waiting queues, KV-cache pressure, and preemption**
 
 ## Roadmap
 
 Completed:
 
 - [x] Stage 1: Environment setup and model deployment
-- [x] Stage 2: Baseline serving benchmark
-- [x] Stage 3: Concurrency scaling experiment
-- [x] Stage 4: Context length experiment
+- [x] Stage 2: Baseline benchmark
+- [x] Stage 3: Concurrency scaling
+- [x] Stage 4: Context length scaling
+- [x] Stage 5: Project V1 milestone
+- [x] Stage 6: Automatic Prefix Caching
+- [x] Stage 7: Chunked Prefill
+- [x] Stage 8: Scheduler / KV-cache pressure / preemption
 
-Planned:
-
-- [ ] Prefix caching experiment
-- [ ] Chunked prefill analysis
-- [ ] KV cache pressure analysis
-- [ ] Scheduler and preemption analysis
-- [ ] Higher-concurrency saturation study
 
 ## Notes
 
-This project focuses on **systems behavior and serving performance**, rather than model quality.
+This project focuses on **systems behavior and serving performance**, not model quality.
 
-All current benchmark results were collected using the same model and physical GPU to keep comparisons consistent.
+The experiments use controlled synthetic workloads. Stage 8 intentionally uses `num_gpu_blocks_override` as a stress-test mechanism to isolate KV-cache capacity effects.
